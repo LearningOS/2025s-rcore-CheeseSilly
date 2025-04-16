@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -45,15 +45,16 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    //ch3: nums of calls of
 }
 
 lazy_static! {
     /// Global variable: TASK_MANAGER
     pub static ref TASK_MANAGER: TaskManager = {
         let num_app = get_num_app();
-        let mut tasks = [TaskControlBlock {
-            task_cx: TaskContext::zero_init(),
+        let mut tasks = [TaskControlBlock { task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            sys_call_times: [0; MAX_SYSCALL_NUM]
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -135,6 +136,19 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// for ch3 of num_calls
+    fn add_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].sys_call_times[syscall_id] += 1;
+    }
+
+    /// for ch3 check count
+    fn check_syscall_count(&self) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].sys_call_times.clone()
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +182,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// for ch3 of num_calls
+pub fn add_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.add_syscall_count(syscall_id);
+}
+
+/// for ch3 check count
+pub fn check_syscall_count() -> [u32; MAX_SYSCALL_NUM] {
+    TASK_MANAGER.check_syscall_count()
 }
